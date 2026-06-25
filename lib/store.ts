@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 /**
@@ -60,7 +61,10 @@ interface DB {
   users: Record<string, UserRecord>;
 }
 
-const DATA_DIR = path.join(process.cwd(), ".data");
+// ponytail: os.tmpdir() is the only writable path on Vercel (cwd is read-only).
+// Ceiling: ephemeral per-instance — meal log resets on cold start / isn't shared
+// across instances. Upgrade to Upstash Redis / Vercel KV for durable multi-instance state.
+const DATA_DIR = path.join(os.tmpdir(), "nutrichat-data");
 const DATA_FILE = path.join(DATA_DIR, "log.json");
 const MAX_HISTORY = 24; // rolling window of turns kept for context
 
