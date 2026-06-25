@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, type FileUIPart } from "ai";
 import {
   useEffect,
   useMemo,
@@ -25,6 +25,27 @@ function useUserId(): string {
     return id;
   });
   return userId;
+}
+
+// Downscale + JPEG-compress in the browser so the POST body stays well under
+// Vercel's ~4.5MB request limit (raw phone photos blow past it -> 413).
+async function shrinkImage(file: File): Promise<FileUIPart> {
+  const MAX = 1280;
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close?.();
+  return {
+    type: "file",
+    mediaType: "image/jpeg",
+    url: canvas.toDataURL("image/jpeg", 0.8),
+    filename: file.name.replace(/\.\w+$/, "") + ".jpg",
+  };
 }
 
 function time(): string {
@@ -69,15 +90,23 @@ export default function Page() {
     return () => urls.forEach((u) => URL.revokeObjectURL(u));
   }, [files]);
 
-  function submit(e?: FormEvent) {
+  async function submit(e?: FormEvent) {
     e?.preventDefault();
     if (busy) return;
     const text = input.trim();
-    if (!text && !files?.length) return;
-    sendMessage({ text: text || "(see photo)", files });
+    const fl = files;
+    if (!text && !fl?.length) return;
     setInput("");
     setFiles(undefined);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    const parts = fl
+      ? await Promise.all(
+          Array.from(fl)
+            .filter((f) => f.type.startsWith("image/"))
+            .map(shrinkImage),
+        )
+      : undefined;
+    sendMessage({ text: text || "(see photo)", files: parts });
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
